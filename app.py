@@ -9,13 +9,13 @@ from openpyxl.utils import get_column_letter
 
 st.title("ABD Borsası ETF Tarayıcı")
 st.write(
-    "Haftalık/Aylık Detaylı Rapor: Ödeme sıklığı dahil tüm oranlar eksiksiz"
-    " taranıyor."
+    "Haftalık/Aylık Detaylı Rapor: Ödeme sıklığı ve düzeltilmiş temettü oranları"
+    " ile eksiksiz taranıyor."
 )
 
 if st.button("Verileri Güncelle ve Excel Oluştur"):
   with st.spinner(
-      "Fon detayları ve ödeme sıklıkları taranıyor, lütfen bekleyin..."
+      "Fon detayları ve oranlar taranıyor, lütfen bekleyin..."
   ):
     kategoriler = {
         "Temettü ETF'leri": [
@@ -488,11 +488,9 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
               info.get("currentPrice", info.get("previousClose", 0.0)),
           )
 
-          # Ödeme sıklığını ve diğer detayları geçmiş temettü tarihlerinden tespit et
           try:
             divs = t.dividends
             if divs is not None and len(divs) > 4:
-              # Son 1 yıldaki temettü ödeme sayısına bakalım
               last_year_divs = divs[divs.index >= (divs.index[-1] - pd.DateOffset(years=1))]
               count = len(last_year_divs)
               if count >= 10:
@@ -511,7 +509,7 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
               if fees and "Fees Expenses" in fees:
                 fee_val = fees["Fees Expenses"].get("Annual Report Expense Ratio")
                 if fee_val:
-                  exp_ratio = round(float(fee_val) * 100, 2)
+                  exp_ratio = float(fee_val)
 
               aum_val = f_data.total_assets
               if aum_val:
@@ -527,11 +525,15 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
           if exp_ratio == 0.0:
             e_ratio = info.get("expenseRatio", info.get("annualReportExpenseRatio", 0))
             if e_ratio:
-              exp_ratio = round(e_ratio * 100, 2)
+              exp_ratio = float(e_ratio)
 
           d_yield = info.get("dividendYield", 0)
           if d_yield:
-            div_yield = round(d_yield * 100, 2)
+            # Eğer değer 1'den büyükse (örn 3.5 gelirse) direkt al, küçükse (0.035 gelirse) 100 ile çarp
+            if d_yield > 1.0:
+              div_yield = d_yield / 100.0
+            else:
+              div_yield = d_yield
 
           hist = t.history(period="1y")
           if not hist.empty:
@@ -539,29 +541,23 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
             if price == 0.0:
               price = current_p
             start_p_1y = float(hist["Close"].iloc[0])
-            y1_ret = round(((current_p - start_p_1y) / start_p_1y) * 100, 2)
+            y1_ret = (current_p - start_p_1y) / start_p_1y
 
             year_start = hist[hist.index.year == hist.index[-1].year]
             if not year_start.empty:
               start_p_ytd = float(year_start["Close"].iloc[0])
               ytd_ret = (
-                  round(
-                      ((current_p - start_p_ytd) / start_p_ytd) * 100, 2
-                  )
+                  (current_p - start_p_ytd) / start_p_ytd
                   if start_p_ytd
                   else 0.0
               )
 
             if len(hist) >= 20:
               start_p_1m = float(hist["Close"].iloc[-20])
-              m1_ret = round(
-                  ((current_p - start_p_1m) / start_p_1m) * 100, 2
-              )
+              m1_ret = (current_p - start_p_1m) / start_p_1m
             if len(hist) >= 60:
               start_p_3m = float(hist["Close"].iloc[-60])
-              m3_ret = round(
-                  ((current_p - start_p_3m) / start_p_3m) * 100, 2
-              )
+              m3_ret = (current_p - start_p_3m) / start_p_3m
         except Exception:
           pass
 
@@ -604,14 +600,15 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
             cell.alignment = Alignment(horizontal="center", vertical="center")
           elif col_idx in [6, 12]:
             val = cell.value
-            if isinstance(val, (int, float)):
-              cell.value = val / 100.0
+            if isinstance(val, (int, float)) and val > 0:
+              cell.number_format = "0.00%"
+            else:
+              cell.value = 0.0
               cell.number_format = "0.00%"
             cell.alignment = Alignment(horizontal="right", vertical="center")
           elif col_idx >= 8:
             val = cell.value
             if isinstance(val, (int, float)):
-              cell.value = val / 100.0
               cell.number_format = "0.00%"
             cell.alignment = Alignment(horizontal="right", vertical="center")
         row_idx += 1
