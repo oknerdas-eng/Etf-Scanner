@@ -1,4 +1,5 @@
 import io
+import os
 import openpyxl
 import pandas as pd
 import streamlit as st
@@ -416,13 +417,11 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
         ],
     }
 
-    # Tüm ticker'ları tek listede topla ve toplu veri çek
     all_tickers = []
     for t_list in kategoriler.values():
       all_tickers.extend(t_list)
     all_tickers = list(set(all_tickers))
 
-    # Toplu fiyat geçmişini tek seferde indir (Zaman aşımını önler)
     data = yf.download(all_tickers, period="1y", group_by="ticker", threads=True)
 
     wb = openpyxl.Workbook()
