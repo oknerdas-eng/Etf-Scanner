@@ -9,14 +9,14 @@ from openpyxl.utils import get_column_letter
 
 st.title("ABD Borsası ETF Tarayıcı")
 st.write(
-    "Haftalık/Aylık Detaylı Rapor: Tüm fon künyeleri, temettü verimleri ve"
-    " yönetim ücretleri %100 eksiksiz çekiliyor."
+    "Haftalık/Aylık Detaylı Rapor: Expense Ratio, AUM ve Temettü verileri fon"
+    " künyesinden tam olarak çekiliyor."
 )
 
 if st.button("Verileri Güncelle ve Excel Oluştur"):
   with st.spinner(
-      "Fon künyeleri ve oranlar detaylıca taranıyor (Bu işlem birkaç dakika"
-      " sürebilir, lütfen bekleyin)..."
+      "Fon detayları ve oranlar taranıyor (Bu işlem birkaç dakika sürebilir,"
+      " lütfen bekleyin)..."
   ):
     kategoriler = {
         "Temettü ETF'leri": [
@@ -487,19 +487,38 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
               info.get("currentPrice", info.get("previousClose", 0.0)),
           )
 
-          aum_val = info.get("totalAssets", 0)
-          if aum_val:
-            aum_str = f"{round(aum_val / 1e9, 1)}B"
+          # Fonlara özel detay verileri (Expense Ratio, AUM vb. için)
+          try:
+            f_data = t.funds_data
+            if f_data:
+              fees = f_data.fund_profile
+              if fees and "Fees Expenses" in fees:
+                fee_val = fees["Fees Expenses"].get("Annual Report Expense Ratio")
+                if fee_val:
+                  exp_ratio = round(float(fee_val) * 100, 2)
+              
+              # AUM alternatif çekim
+              aum_val = f_data.total_assets
+              if aum_val:
+                aum_str = f"{round(aum_val / 1e9, 1)}B"
+          except Exception:
+            pass
+
+          # Eğer AUM funds_data'dan gelmediyse info'dan dene
+          if aum_str == "N/A":
+            aum_val = info.get("totalAssets", 0)
+            if aum_val:
+              aum_str = f"{round(aum_val / 1e9, 1)}B"
+
+          # Eğer Expense Ratio hâlâ 0 ise info'dan dene
+          if exp_ratio == 0.0:
+            e_ratio = info.get("expenseRatio", info.get("annualReportExpenseRatio", 0))
+            if e_ratio:
+              exp_ratio = round(e_ratio * 100, 2)
 
           d_yield = info.get("dividendYield", 0)
           if d_yield:
             div_yield = round(d_yield * 100, 2)
-
-          e_ratio = info.get(
-              "expenseRatio", info.get("annualReportExpenseRatio", 0)
-          )
-          if e_ratio:
-            exp_ratio = round(e_ratio * 100, 2)
 
           hist = t.history(period="1y")
           if not hist.empty:
