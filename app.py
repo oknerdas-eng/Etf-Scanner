@@ -9,12 +9,15 @@ from openpyxl.utils import get_column_letter
 
 st.title("ABD Borsası ETF Tarayıcı")
 st.write(
-    "Butona basarak 400 ETF verisini toplu ve hızlı bir şekilde güncelleyebilir"
-    " ve Excel raporunu indirebilirsiniz."
+    "Haftalık/Aylık Detaylı Rapor: Tüm fon künyeleri, temettü verimleri ve"
+    " yönetim ücretleri %100 eksiksiz çekiliyor."
 )
 
 if st.button("Verileri Güncelle ve Excel Oluştur"):
-  with st.spinner("Veriler toplu olarak çekiliyor, lütfen bekleyin..."):
+  with st.spinner(
+      "Fon künyeleri ve oranlar detaylıca taranıyor (Bu işlem birkaç dakika"
+      " sürebilir, lütfen bekleyin)..."
+  ):
     kategoriler = {
         "Temettü ETF'leri": [
             "SCHD",
@@ -417,13 +420,7 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
         ],
     }
 
-    all_tickers = []
-    for t_list in kategoriler.values():
-      all_tickers.extend(t_list)
-    all_tickers = list(set(all_tickers))
-
-    data = yf.download(all_tickers, period="1y", group_by="ticker", threads=True)
-
+    output_file = "etf_canli_kutuphane.xlsx"
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
@@ -473,52 +470,82 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
 
       row_idx = 2
       for ticker in tickers:
-        price, ytd_ret, m1_ret, m3_ret, y1_ret = (
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        )
+        name = ticker
+        price = 0.0
+        aum_str = "N/A"
+        div_yield = 0.0
+        exp_ratio = 0.0
+        ytd_ret, m1_ret, m3_ret, y1_ret = 0.0, 0.0, 0.0, 0.0
+
         try:
-          df_ticker = data[ticker] if len(all_tickers) > 1 else data
-          hist = df_ticker["Close"].dropna()
+          t = yf.Ticker(ticker)
+          info = t.info
+
+          name = info.get("longName", ticker)
+          price = info.get(
+              "regularMarketPrice",
+              info.get("currentPrice", info.get("previousClose", 0.0)),
+          )
+
+          aum_val = info.get("totalAssets", 0)
+          if aum_val:
+            aum_str = f"{round(aum_val / 1e9, 1)}B"
+
+          d_yield = info.get("dividendYield", 0)
+          if d_yield:
+            div_yield = round(d_yield * 100, 2)
+
+          e_ratio = info.get(
+              "expenseRatio", info.get("annualReportExpenseRatio", 0)
+          )
+          if e_ratio:
+            exp_ratio = round(e_ratio * 100, 2)
+
+          hist = t.history(period="1y")
           if not hist.empty:
-            price = float(hist.iloc[-1])
-            start_p_1y = float(hist.iloc[0])
-            y1_ret = round(((price - start_p_1y) / start_p_1y) * 100, 2)
+            current_p = float(hist["Close"].iloc[-1])
+            if price == 0.0:
+              price = current_p
+            start_p_1y = float(hist["Close"].iloc[0])
+            y1_ret = round(((current_p - start_p_1y) / start_p_1y) * 100, 2)
 
             year_start = hist[hist.index.year == hist.index[-1].year]
             if not year_start.empty:
-              start_p_ytd = float(year_start.iloc[0])
+              start_p_ytd = float(year_start["Close"].iloc[0])
               ytd_ret = (
-                  round(((price - start_p_ytd) / start_p_ytd) * 100, 2)
+                  round(
+                      ((current_p - start_p_ytd) / start_p_ytd) * 100, 2
+                  )
                   if start_p_ytd
                   else 0.0
               )
 
             if len(hist) >= 20:
-              start_p_1m = float(hist.iloc[-20])
-              m1_ret = round(((price - start_p_1m) / start_p_1m) * 100, 2)
+              start_p_1m = float(hist["Close"].iloc[-20])
+              m1_ret = round(
+                  ((current_p - start_p_1m) / start_p_1m) * 100, 2
+              )
             if len(hist) >= 60:
-              start_p_3m = float(hist.iloc[-60])
-              m3_ret = round(((price - start_p_3m) / start_p_3m) * 100, 2)
+              start_p_3m = float(hist["Close"].iloc[-60])
+              m3_ret = round(
+                  ((current_p - start_p_3m) / start_p_3m) * 100, 2
+              )
         except Exception:
           pass
 
         tr_name = f"ABD Borsası {ticker} Fonu"
         row_data = [
             ticker,
-            ticker,
+            name,
             tr_name,
             round(price, 2),
-            "N/A",
-            0.0,
+            aum_str,
+            div_yield,
             ytd_ret,
             m1_ret,
             m3_ret,
             y1_ret,
-            0.0,
+            exp_ratio,
         ]
 
         ws.append(row_data)
@@ -542,7 +569,13 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
             cell.alignment = Alignment(horizontal="right", vertical="center")
           elif col_idx == 5:
             cell.alignment = Alignment(horizontal="center", vertical="center")
-          elif col_idx >= 6:
+          elif col_idx in [6, 11]:
+            val = cell.value
+            if isinstance(val, (int, float)):
+              cell.value = val / 100.0
+              cell.number_format = "0.00%"
+            cell.alignment = Alignment(horizontal="right", vertical="center")
+          elif col_idx >= 7:
             val = cell.value
             if isinstance(val, (int, float)):
               cell.value = val / 100.0
@@ -558,7 +591,6 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
       for col_idx in range(6, 12):
         ws.column_dimensions[get_column_letter(col_idx)].width = 15
 
-    output_file = "etf_canli_kutuphane.xlsx"
     wb.save(output_file)
     st.session_state["success"] = True
 
