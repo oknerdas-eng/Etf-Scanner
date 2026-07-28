@@ -9,14 +9,13 @@ from openpyxl.utils import get_column_letter
 
 st.title("ABD Borsası ETF Tarayıcı")
 st.write(
-    "Haftalık/Aylık Detaylı Rapor: Expense Ratio, AUM ve Temettü verileri fon"
-    " künyesinden tam olarak çekiliyor."
+    "Haftalık/Aylık Detaylı Rapor: Ödeme sıklığı dahil tüm oranlar eksiksiz"
+    " taranıyor."
 )
 
 if st.button("Verileri Güncelle ve Excel Oluştur"):
   with st.spinner(
-      "Fon detayları ve oranlar taranıyor (Bu işlem birkaç dakika sürebilir,"
-      " lütfen bekleyin)..."
+      "Fon detayları ve ödeme sıklıkları taranıyor, lütfen bekleyin..."
   ):
     kategoriler = {
         "Temettü ETF'leri": [
@@ -431,6 +430,7 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
         "Fiyat",
         "ETF Toplam Değer",
         "Temettü Verimi %",
+        "Ödeme Sıklığı",
         "Yılbaşından Bugüne Getiri",
         "1 AYLIK GETİRİ",
         "3 AYLIK GETİRİ",
@@ -475,6 +475,7 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
         aum_str = "N/A"
         div_yield = 0.0
         exp_ratio = 0.0
+        payout_freq = "N/A"
         ytd_ret, m1_ret, m3_ret, y1_ret = 0.0, 0.0, 0.0, 0.0
 
         try:
@@ -487,7 +488,22 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
               info.get("currentPrice", info.get("previousClose", 0.0)),
           )
 
-          # Fonlara özel detay verileri (Expense Ratio, AUM vb. için)
+          # Ödeme sıklığını ve diğer detayları geçmiş temettü tarihlerinden tespit et
+          try:
+            divs = t.dividends
+            if divs is not None and len(divs) > 4:
+              # Son 1 yıldaki temettü ödeme sayısına bakalım
+              last_year_divs = divs[divs.index >= (divs.index[-1] - pd.DateOffset(years=1))]
+              count = len(last_year_divs)
+              if count >= 10:
+                payout_freq = "Yılda 12 (Aylık)"
+              elif count >= 3:
+                payout_freq = "Yılda 4 (Üç Aylık)"
+              elif count >= 1:
+                payout_freq = f"Yılda {count}"
+          except Exception:
+            pass
+
           try:
             f_data = t.funds_data
             if f_data:
@@ -496,21 +512,18 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
                 fee_val = fees["Fees Expenses"].get("Annual Report Expense Ratio")
                 if fee_val:
                   exp_ratio = round(float(fee_val) * 100, 2)
-              
-              # AUM alternatif çekim
+
               aum_val = f_data.total_assets
               if aum_val:
                 aum_str = f"{round(aum_val / 1e9, 1)}B"
           except Exception:
             pass
 
-          # Eğer AUM funds_data'dan gelmediyse info'dan dene
           if aum_str == "N/A":
             aum_val = info.get("totalAssets", 0)
             if aum_val:
               aum_str = f"{round(aum_val / 1e9, 1)}B"
 
-          # Eğer Expense Ratio hâlâ 0 ise info'dan dene
           if exp_ratio == 0.0:
             e_ratio = info.get("expenseRatio", info.get("annualReportExpenseRatio", 0))
             if e_ratio:
@@ -560,6 +573,7 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
             round(price, 2),
             aum_str,
             div_yield,
+            payout_freq,
             ytd_ret,
             m1_ret,
             m3_ret,
@@ -580,7 +594,7 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
           if col_idx == 1:
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.font = Font(name="Calibri", size=10, bold=True)
-          elif col_idx in [2, 3]:
+          elif col_idx in [2, 3, 7]:
             cell.alignment = Alignment(horizontal="left", vertical="center")
             cell.font = Font(name="Calibri", size=10)
           elif col_idx == 4:
@@ -588,13 +602,13 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
             cell.alignment = Alignment(horizontal="right", vertical="center")
           elif col_idx == 5:
             cell.alignment = Alignment(horizontal="center", vertical="center")
-          elif col_idx in [6, 11]:
+          elif col_idx in [6, 12]:
             val = cell.value
             if isinstance(val, (int, float)):
               cell.value = val / 100.0
               cell.number_format = "0.00%"
             cell.alignment = Alignment(horizontal="right", vertical="center")
-          elif col_idx >= 7:
+          elif col_idx >= 8:
             val = cell.value
             if isinstance(val, (int, float)):
               cell.value = val / 100.0
@@ -607,7 +621,9 @@ if st.button("Verileri Güncelle ve Excel Oluştur"):
       ws.column_dimensions["C"].width = 42
       ws.column_dimensions["D"].width = 15
       ws.column_dimensions["E"].width = 18
-      for col_idx in range(6, 12):
+      ws.column_dimensions["F"].width = 16
+      ws.column_dimensions["G"].width = 22
+      for col_idx in range(8, 13):
         ws.column_dimensions[get_column_letter(col_idx)].width = 15
 
     wb.save(output_file)
